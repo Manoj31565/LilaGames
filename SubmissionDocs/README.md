@@ -2,13 +2,14 @@
 
 A Unity WebGL tool for exploring recorded player and bot activity on Ambrose Valley, Grand Rift, and Lockdown. It reads the supplied original Parquet files, groups their events into matches, and displays time-based movement, event markers, and heatmap overlays.
 
-## Links and submission status
+## Demo and source
 
-- **Hosted demo:** Pending deployment. Add the public URL here before submission.
-- **GitHub repository:** Pending. Add the repository URL here before submission.
-- Documentation prepared on 16 October 2026 against the current local project.
+- **Live demo:** https://lilagames.pages.dev/
+- **GitHub repository:** https://github.com/Manoj31565/LilaGames
+- **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md)
+- **Three evidence-backed findings:** [INSIGHTS.md](INSIGHTS.md)
 
-The assignment requires a single GitHub repository link containing the source, these documents, and a working deployed URL. These documents alone do not satisfy the hosting requirement. Place this README, ARCHITECTURE.md, and INSIGHTS.md in the repository root.
+Prepared for the LILA Product Engineer assignment; updated 17 October 2026. The walkthrough below covers loading, filtering, replay, event markers, and heatmaps.
 
 ## Tech stack
 
@@ -17,7 +18,7 @@ The assignment requires a single GitHub repository link containing the source, t
 - **Parquet.Net 5.1.0**, with dependencies restored through NuGetForUnity; package versions are recorded in `Assets/packages.config`.
 - A JavaScript WebGL file picker and UnityWebRequest for browser-accessible file loading.
 - Generated Texture2D/SpriteRenderer overlays and a custom unlit heatmap shader.
-- Static WebGL hosting; no application backend, database, login, API key, or environment variables are required.
+- Cloudflare Pages static WebGL hosting; no application backend, database, login, API key, or environment variables are required.
 
 ## Run locally
 
@@ -36,9 +37,9 @@ The browser file picker is a WebGL feature; use the existing-data path in the Ed
 3. Select a match to open its minimap. Human and bot markers use separate prefabs.
 4. Use Play, Pause, Restart, and the timeline slider to inspect progression. Movement interpolates between recorded Position/BotPosition samples; it is a reconstruction, not a recording of every frame.
 5. Inspect the event markers: gold coin for loot, skull for kills, tombstone for deaths, and storm icon for storm deaths.
-6. Inspect the independent kill (red), death (purple), and traffic (cyan) heatmaps. They show activity reached by playback, fade over a default 30-second window, and disable when no events are active. Death density includes storm deaths. Loot is not included in heatmaps.
+6. Inspect the independent kill (red), death (purple), and traffic (cyan) heatmaps. Kill and death zones accumulate up to the selected time and persist until rewinding before their events. Traffic fades over a default 30-second window. Layers disable when no qualifying events exist at the selected time. Death density includes storm deaths; loot is not included in heatmaps. Event markers also remain after their events and hide when rewound before them.
 
-The playback controller exposes speed adjustment in code; a speed selector is not currently wired in the scene. Heatmap radius, opacity, saturation, and activity window are Inspector settings, not browser controls. Setting the window to zero accumulates all elapsed activity.
+The playback controller exposes speed adjustment in code; a speed selector is not currently wired in the scene. Heatmap radius, opacity, saturation, and activity window are Inspector settings, not browser controls. Setting the traffic window to zero accumulates all elapsed movement samples.
 
 ### Upload an original file
 
@@ -54,9 +55,40 @@ Each supplied file contains one recorded player's events. The existing-data load
 4. The pre-build hook generates `Assets/StreamingAssets/player_data/parquet-files.txt`. This contains only relative source-file paths. Match IDs and event data are still parsed from the original Parquet, not converted match JSON.
 5. Upload the **complete generated build directory**, preserving `index.html`, `Build`, `TemplateData`, and `StreamingAssets` and their relative paths, to a static web host.
 6. Configure the host to serve the generated WebAssembly and compressed files with matching content types/encoding, or choose compatible Unity compression/decompression settings and rebuild. Do not launch the output through `file://`.
-7. Test the public URL in a fresh browser session: bundled-data loading, file upload, filters, playback, markers, and heatmaps. Then replace the pending links above.
+7. Test the public URL in a fresh browser session: bundled-data loading, file upload, filters, playback, markers, and heatmaps.
 
 The runtime expects `StreamingAssets/player_data/parquet-files.txt` and every listed original file to be available at the deployed relative URLs. HTTP failures are displayed in the loading status and logged to the browser console.
+
+### Cloudflare Pages deployment
+
+The demo uses Cloudflare Pages. Install Node.js LTS, open PowerShell in the generated build folder containing `index.html`, then run:
+
+```powershell
+npx.cmd wrangler login
+npx.cmd wrangler pages deploy . --project-name lilagames
+```
+
+Use the existing production branch when prompted. Wrangler authenticates through the browser; no credentials belong in the Unity project. For the current Brotli-compressed build, create a file named `_headers` (without `.txt`) beside `index.html`:
+
+```text
+/Build/Lila.framework.js.br
+  Content-Type: application/javascript
+  Content-Encoding: br
+
+/Build/Lila.wasm.br
+  Content-Type: application/wasm
+  Content-Encoding: br
+
+/Build/Lila.data.br
+  Content-Type: application/octet-stream
+  Content-Encoding: br
+```
+
+Update these paths if the build filename changes. Keep this file when replacing the build output. Upload the whole folder with Wrangler, including `StreamingAssets`; the browser drag-and-drop upload has a lower file-count limit. The deployed build is hosted by Cloudflare and does not depend on the developer's PC remaining on.
+
+### Environment variables
+
+**None required** to run the tool locally or in the browser. Deployment requires a Cloudflare account and Wrangler authentication only.
 
 ## Source layout
 
@@ -77,15 +109,14 @@ The historical `Assets/convert_player_data.py` and converted `StreamingAssets/Pl
 
 A fresh scan of the original files found **1,243 files, 89,104 events, 796 distinct matches, 339 distinct user IDs, and eight event types** across February 10-14, 2026. February 14 is a partial day. See INSIGHTS.md for the evidence and limitations.
 
-Local C# compilation checks and focused checks for parser output, event-index boundaries, and heatmap timeline selection have passed during development. These checks do not establish browser compatibility or visual correctness of a newly built deployment. Public deployment verification is pending.
+Local C# compilation checks and focused checks for parser output, event-index boundaries, and heatmap timeline selection passed during development. The WebGL code path also compiled after adding bounded concurrent loading. The deployed framework, data, and WebAssembly URLs were checked for HTTP 200 responses and matching Brotli/content-type headers. These checks are not a full browser interaction test; repeat the walkthrough after each deployment. Documentation describes the current local source; rebuild and redeploy when source changes.
 
 ## Known limitations
 
-- Event markers currently expire with Unity's `Destroy(marker, 5f)`, rather than replay time. Pausing or rewinding does not fully reconstruct marker visibility; already-spawned markers can persist briefly or duplicate after rewinding.
 - A search with no results reports a message but leaves the previous match buttons visible. A failed initial load also leaves the filters disabled, and the current Back action is gated on successful loading.
-- Match buttons are created together; large lists can cause a UI pause. Returning through a newly loaded Menu scene does not retain the previous menu's in-memory cache.
+- Match buttons are created together; large lists can cause a UI pause. Loaded match data is cached in memory across scene changes, but a browser refresh starts a new session.
 - Heatmap rendering currently refreshes whenever playback time changes; the serialized refresh interval is not enforced by the present FixedUpdate implementation.
-- Browser startup requests the original files individually. High request counts, Parquet parsing, and WebGL memory use need testing on the final host/device.
+- Initial dataset loading requests original files individually, with up to six concurrent load operations in WebGL and a file-count progress indicator. Parsing still consumes browser main-thread time; network latency, CPU, and memory affect startup. No measured speedup is claimed.
 - Sampled telemetry is incomplete evidence of the full game. No extraction/success outcome is available, and movement density is not a count of unique visitors.
 
 AI assistance was used for implementation, debugging, documentation, and generated event icons.

@@ -1,10 +1,12 @@
 # Three insights from the supplied LILA BLACK telemetry
 
+Live tool: https://lilagames.pages.dev/ | Source: https://github.com/Manoj31565/LilaGames
+
 ## Evidence and scope
 
 These findings use a direct scan of all 1,243 original Parquet files in `Assets/StreamingAssets/player_data/February_*`, covering 89,104 event rows, 796 distinct match IDs and 339 distinct user IDs. They do not use converted match JSON. The supplied period is February 10-14, 2026; February 14 is partial. Counts describe this telemetry sample, not the whole live population. Each row is an event, not necessarily a unique interaction or unique player.
 
-The replay tool provides map/match filters and time-based inspection. The quantitative summaries below were calculated from the same raw inputs; aggregate cross-match statistics are not currently displayed in its UI. Named match examples can be searched in the tool for visual follow-up. Heatmaps use a 30-second rolling window, whereas these counts cover all recorded times.
+The replay tool provides map/match filters and time-based inspection. The quantitative summaries below were calculated from the same raw inputs; aggregate cross-match statistics are not currently displayed in its UI. Named match examples can be searched in the tool for visual follow-up. Traffic heatmaps use a 30-second rolling window; kill and death heatmaps accumulate through the selected replay time. The aggregate counts below cover all recorded times.
 
 ## 1. Ambrose Valley has a concentrated loot-and-combat area
 

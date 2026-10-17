@@ -223,17 +223,34 @@ public static class ParquetLoader
         onProgress?.Invoke(0, files.Length);
 
 #if UNITY_WEBGL && !UNITY_EDITOR
-        var slice = System.Diagnostics.Stopwatch.StartNew();
-        for (int i = 0; i < files.Length; i++)
+        // Overlap network waits without threads (WebGL runs on Unity's main thread).
+        // Bound concurrency to avoid buffering every file or flooding the server.
+        int nextFile = 0;
+        int completed = 0;
+        bool failed = false;
+        async Task LoadWebFilesAsync()
         {
-            fileMatches[i] = await LoadAsync(files[i], rawTimestampsAreUnixSeconds);
-            onProgress?.Invoke(i + 1, files.Length);
-            if (slice.ElapsedMilliseconds >= 8)
+            try
             {
-                await Task.Yield();
-                slice.Restart();
+                while (!failed && nextFile < files.Length)
+                {
+                    int index = nextFile++;
+                    fileMatches[index] = await LoadAsync(files[index], rawTimestampsAreUnixSeconds);
+                    onProgress?.Invoke(++completed, files.Length);
+                    // Let the progress UI render even when responses are cached.
+                    await UnityEngine.Awaitable.NextFrameAsync();
+                }
+            }
+            catch
+            {
+                failed = true;
+                throw;
             }
         }
+        var downloads = new Task[Math.Min(6, files.Length)];
+        for (int i = 0; i < downloads.Length; i++)
+            downloads[i] = LoadWebFilesAsync();
+        await Task.WhenAll(downloads);
 #else
         int nextFile = -1;
         int completed = 0;

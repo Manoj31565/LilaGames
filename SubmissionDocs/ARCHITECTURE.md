@@ -1,16 +1,16 @@
 # Architecture
 
-## Stack and intent
+## Stack and rationale
 
-Unity 6000.3.14f1/C# with URP, SpriteRenderers, TextMeshPro, and Unity UI provides a single codebase for Editor iteration and a browser-delivered WebGL replay. Parquet.Net 5.1.0 reads the original telemetry. This choice reuses the project's game-engine workflow and coordinate transforms; its cost is a heavier download and browser runtime than a lightweight web UI. Deployment is static; no backend, credentials, or environment variables are required. Hosting is pending.
+Unity 6000.3.14f1/C#, URP, Unity UI/TextMeshPro, and Parquet.Net 5.1.0 provide a browser-delivered WebGL replay. Unity reuses game-engine transforms, sprites, and playback workflows; the tradeoff is a larger runtime than a lightweight JavaScript frontend. Cloudflare Pages hosts the static build at https://lilagames.pages.dev/. Source: https://github.com/Manoj31565/LilaGames. No application server, database, secrets, or environment variables are required.
 
 ## Data flow
 
-`Original Parquet -> ParquetLoader -> PlayerData.matches -> Menu filters -> selected MatchData -> Game scene -> players / markers / heatmaps`
+`Original Parquet -> ParquetLoader -> PlayerData.matches -> menu filters -> selected MatchData -> playback -> players, markers, heatmaps`
 
-In Editor/desktop, the loader enumerates source files and uses up to four workers. In WebGL, a pre-build hook writes a path-only manifest; UnityWebRequest fetches that list and the original files, which are parsed through MemoryStream. Uploads instead use FileReader -> Base64 -> C# MemoryStream. There is no runtime dependency on converted match JSON.
+A pre-build hook creates a path-only manifest of original files. WebGL downloads it and loads up to six files concurrently through UnityWebRequest and MemoryStream; parsing stays on the main thread. Editor/desktop uses up to four workers. The loader reads all row groups and eight columns, decodes binary event labels as UTF-8, groups by match_id/user_id, merges matching identities across files, and sorts events by timestamp. It recalculates counts, relative times, and observed duration. No converted match JSON is required. A browser upload follows FileReader -> Base64 -> MemoryStream and contains only that file's records.
 
-ParquetLoader reads all row groups and eight source columns, decodes binary event labels as UTF-8, groups by match_id and user_id, and sorts events by time. The all-files path merges matching identities across files and recomputes counts, start time, duration, and relative event times. MenuManager filters map/date/match and passes the selection through Constants.currentMatchData. MatchPlaybackController owns replay time; Player interpolates movement samples, while HeatmapTimeline selects events reached within the rolling window. Three independent textures accumulate Gaussian contributions for kills, deaths, and traffic; old contributions fade and empty layers disable.
+MenuManager caches the dataset across scenes and filters by map, UTC date, and match ID. Constants.currentMatchData transfers the selection. MatchPlaybackController owns time; Player interpolates Position/BotPosition samples. Event markers are cached per event and hidden before their timestamps on rewind. HeatmapTimeline selects elapsed events: kills/deaths persist, while traffic fades over 30 seconds. Three Gaussian-density textures overlay the map; empty layers disable.
 
 ## Coordinate mapping
 
@@ -20,16 +20,16 @@ ParquetLoader reads all row groups and eight source columns, decodes binary even
 | GrandRift | 581 | -290 | -290 |
 | Lockdown | 1000 | -500 | -500 |
 
-Calculate `u = (x - originX) / scale`, `v = (z - originZ) / scale`. World y is elevation and is not used for the top-down position. Convert UV into the map sprite's local bounds: `(min.x + u*size.x, min.y + v*size.y, 0)`, then use TransformPoint. This handles the map's transform and scale. Unity sprite coordinates use a bottom-left origin, so the README's top-left image formula `(1-v)*height` is not applied here. Player mapping handles sprite flips; heatmap sprites align to the map bounds and copy flip settings. Out-of-range UV events are excluded from heatmaps rather than clamped into false edge hotspots.
+Compute `u=(x-originX)/scale`, `v=(z-originZ)/scale`; world y is elevation. Map UV into sprite-local bounds using `(min.x+u*size.x, min.y+v*size.y, 0)`, then apply TransformPoint to account for map position and scale. Unity sprites use bottom-left coordinates, so the dataset README's top-left image conversion `(1-v)*height` is unnecessary here. Player mapping handles flips; current maps are unflipped. Heatmaps exclude out-of-range UV rather than clamping false hotspots onto map edges.
 
 ## Assumptions and tradeoffs
 
-| Decision | Reason and consequence |
+| Decision | Reason / consequence |
 |---|---|
-| Interpret raw timestamp integers as Unix seconds despite timestamp[ms] metadata | Values map to February 2026 and plausible replay durations; the supplied README conflicts. The loader documents this assumption and offers standard-millisecond mode. |
-| Numeric user IDs denote bots | Dataset convention; event labels alone do not identify the actor. |
-| Start at earliest observed event | Missing earlier telemetry cannot be reconstructed; duration is observed span, not guaranteed full match length. Dates use UTC. |
-| Client-side parsing and in-memory grouping | Simple static hosting and direct raw-data use; many requests and memory/CPU cost in WebGL. |
-| Rolling 30-second density, not permanent clusters | Highlights recent activity; traffic measures recorded samples, not unique-player flow. |
+| Raw timestamps interpreted as Unix seconds despite timestamp[ms] metadata | Produces February 2026 dates and plausible durations; standard-millisecond mode remains available. |
+| Numeric user IDs identify bots | Follows the dataset convention; combat labels alone do not identify the actor. |
+| Replay begins at earliest observed event | Missing earlier telemetry cannot be reconstructed; duration is observed span, not guaranteed match length. |
+| Client parsing and session cache | Simple static deployment; initial requests, CPU work, and memory remain costs. |
+| Cumulative combat; rolling traffic | Preserves death/kill locations while showing recent movement; traffic counts samples, not unique visitors. |
 
-Known gaps: markers still use wall-clock destruction and are not fully rewind-safe; browser deployment remains to be verified. The architecture separates loading, playback, and rendering so these can be corrected independently.
+Current limits: multi-match uploads lack a selector, empty searches retain old buttons, failed loads lack a usable Back action, and the heatmap refresh interval is not enforced. These are documented in the README rather than presented as completed behavior.
